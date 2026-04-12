@@ -1,0 +1,155 @@
+---
+title: "Project Checkpoint 2"
+author: "Aryan Ajith Nair, Amanda Dong, Natalie Cartwright, Zita Tam"
+format: html
+---
+
+## Checkpoint 2
+
+### **Loading in the data sets**
+```{r}
+
+library(tidyverse)
+library(gt)
+
+cases_month <- read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_month.csv')
+cases_year <- read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_year.csv')
+
+```
+
+# Amanda Dong
+## Using Existing Columns + Custom Function
+### **Research question:** Do the number of measles cases change depending on the time of year?
+```{r}
+monthlyStats <- function(monthly_measles) {
+  tibble(mean_measles = mean(monthly_measles, na.rm = TRUE),
+         median_measles = median(monthly_measles, na.rm = TRUE),
+         max_measles = max(monthly_measles, na.rm = TRUE))
+}
+
+measles_by_month <- tibble()
+
+for (i in 1:12) {
+  monthly_measles <- cases_month |>
+    filter(month == i) |> 
+    pull(measles_total)
+  
+  measles_by_month <- bind_rows(measles_by_month, 
+                                monthlyStats(monthly_measles) |>
+                                  mutate(month = i))
+}
+measles_by_month <- measles_by_month |>
+  select(month, mean_measles, median_measles, max_measles)
+```
+
+### **Conclusion**
+
+According to our resulting summaries, it appears the number of measles cases tends to
+be the most during the beginning of the year (January - March), while the number of cases seems to be the lowest during the transition between summer and fall (August - October). However, it's important to keep in mind that these are summaries over the last 9 years, and include cases all over the world (and seasons/environment are different depending on location).
+
+
+# Natalie Cartwright
+## Using Existing Columns + Iteration
+### **Research question:** Which country and region have the most measles and rubella cases combined?**
+
+```{r}
+total_country_cases <- cases_year |>
+  mutate(
+    across(c(measles_total, rubella_total), as.numeric)) |> # convert columns to numbers
+  group_by(region, country) |> # group by region and country
+  summarize(
+    total_measles = sum(measles_total),
+    total_rubella = sum(rubella_total),
+    .groups = "drop") |>
+  mutate(
+    total_cases = total_measles + total_rubella) |> # new column, measles and rubella cases combined
+arrange(desc(total_cases)) # sorts from highest to lowest cases
+
+total_country_cases |>
+  head(10) |>
+  gt() |>
+  
+  cols_label(
+    region = "Region",
+    country = "Country",
+    total_measles = "Total Measles Cases",
+    total_rubella = "Total Ruebella Cases",
+    total_cases = "Total Combined Cases"
+  ) 
+```
+
+### **Conclusion**
+
+Based on the data summary of the total combined cases of measles and rubella, India, China, and Madagascar are the top three countries (grouped by region) that have the most measles cases from the years 2018-2026.
+
+
+# Aryan Ajith Nair
+## Modified Columns + Custom Function
+### **Research question:** Has the total number of reported measles cases increased or decreased over time globally? 
+
+```{r}
+trend_label <- function(current, previous) {
+  pct_change <- (current - previous) / previous * 100
+  case_when(
+    pct_change < -20 ~ "declining",
+    pct_change >  20 ~ "surging",
+    .default = "stable"
+  )
+}
+
+yearly_summary <- cases_year |>
+  group_by(year) |>
+  summarise(
+    total_cases = sum(measles_total, na.rm = TRUE),
+    n_countries = n_distinct(country),
+    .groups = "drop"
+  ) |>
+  arrange(year) |>
+  mutate(
+    prev_total = lag(total_cases),
+    pct_change = round((total_cases - prev_total) / prev_total * 100, 1),
+    trend = trend_label(total_cases, prev_total)
+  ) |>
+  select(year, total_cases, n_countries, pct_change, trend)
+
+print(yearly_summary)
+```
+
+
+### **Conclusion**
+
+According to my summary table, global reported measles cases show an overall declining trend across the years in the dataset, with the most years labeled as declining or stable. Isolated surging years are visible. This points to a periodic resurgence likely tied to drops in vaccination coverage or large outbreaks in highly populated countries.
+
+# Zita
+## Modified Columns + Iteration
+### **Research question:** Which country and region have the most measles and rubella cases combined?
+
+```{r}
+total_country_cases <- cases_year |>
+  mutate(
+    across(c(measles_total, rubella_total), as.numeric)) |> # convert columns to numbers
+  group_by(region, country) |> # group by region and country
+  summarize(
+    total_measles = sum(measles_total),
+    total_rubella = sum(rubella_total),
+    .groups = "drop") |>
+  mutate(
+    total_cases = total_measles + total_rubella) |> # new column, measles and rubella cases combined
+arrange(desc(total_cases)) # sorts from highest to lowest cases
+
+total_country_cases |>
+  head(10) |>
+  gt() |>
+  
+  cols_label(
+    region = "Region",
+    country = "Country",
+    total_measles = "Total Measles Cases",
+    total_rubella = "Total Ruebella Cases",
+    total_cases = "Total Combined Cases"
+  ) 
+```
+
+### **Conclusion**
+
+Based on the data summary of the total combined cases of measles and rubella, India, China, and Madagascar are the top three countries (grouped by region) that have the most measles cases from the years 2018-2026.
