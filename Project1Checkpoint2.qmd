@@ -1,0 +1,54 @@
+---
+title: "Project Checkpoint 2"
+author: "Aryan Ajith Nair"
+format: html
+---
+
+## Checkpoint 2
+
+### **Loading in the data sets**
+```{r}
+
+library(tidyverse)
+
+cases_month <- read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_month.csv')
+cases_year <- read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_year.csv')
+
+
+```
+
+### **Research question:** Do measles cases show a meaningful seasonal pattern (Do months consistently produce more cases globally?)? 
+
+### **Creating Custom Function for Summary + Modifying Columns**
+
+```{r}
+monthly_profile <- function(x) {
+  tibble(
+    n = sum(!is.na(x)),
+    median_cases = round(median(x, na.rm = TRUE), 1),
+    mean_cases = round(mean(x, na.rm = TRUE), 1),
+    total_cases = sum(x, na.rm = TRUE)
+  )
+}
+
+seasonal_summary <- cases_month |>
+  mutate(
+    month_name = factor(month.abb[month], levels = month.abb),
+    season = case_when(
+      month %in% 3:5 ~ "Spring",
+      month %in% 6:8 ~ "Summer",
+      month %in% 9:11 ~ "Autumn",
+      .default = "Winter"
+    )
+  ) |>
+  group_by(month_name, season) |>
+  reframe(monthly_profile(measles_total)) |>
+  mutate(pct_of_total = round(total_cases / sum(total_cases) * 100, 1))
+
+print(seasonal_summary)
+```
+
+
+### **Conclusion**
+
+According to my summary table, measles cases peak during the spring months of March, April, and May. These 3 months account for a disproportionately large share of annual global cases. This suggests that school-term congregation after winter breaks drives transmission more than any other seasonal factor.
