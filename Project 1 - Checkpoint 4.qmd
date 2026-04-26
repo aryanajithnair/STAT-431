@@ -1,0 +1,190 @@
+---
+title: "checkpoint 4"
+author: "Zita Tam, Natalie Carthwright, Aryan Ajith Nair, Amanda Dong"
+format:
+  html:
+    embed-resources: true
+    code-fold: true
+    theme: flatly
+---
+
+# load in packages and datasets
+```{r}
+#| label: packages-setup
+#| message: false
+#| warning: false
+library(tidyverse)
+library(paletteer)
+library(gt)
+library(stringr)
+cases_month <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_month.csv')
+cases_year <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_year.csv')
+meta_df <- read_csv("~/Desktop/metadf.csv")
+```
+
+# Research question: Has the total number of reported measles cases increased or decreased over time globally? 
+
+## Custom Function
+```{r}
+trend_label <- function(current, previous) {
+  pct_change <- (current - previous) / previous * 100
+  case_when(
+    pct_change < -20 ~ "declining",
+    pct_change >  20 ~ "surging",
+    .default = "stable"
+  )
+}
+
+yearly_summary <- cases_year |>
+  group_by(year) |>
+  summarise(
+    total_cases = sum(measles_total, na.rm = TRUE),
+    n_countries = n_distinct(country),
+    .groups = "drop"
+  ) |>
+  arrange(year) |>
+  mutate(
+    prev_total = lag(total_cases),
+    pct_change = round((total_cases - prev_total) / prev_total * 100, 1),
+    trend = trend_label(total_cases, prev_total)
+  ) |>
+  select(year, total_cases, n_countries, pct_change, trend)
+```
+
+## Visualization using the Custom Function (complex geometry)
+
+```{r}
+#| warning: false
+#| fig-alt: "Lollipop chart showing the percent change in total measles cases across the world for each year (2012 - 2025). The largest percent increase was in 2022, while the largest decrease was in 2020."
+
+ggplot(yearly_summary, aes(x = year, xend = year, y = 0, yend = pct_change,
+                           color = trend)) +
+  geom_segment(size = 1.3, alpha = 0.9) +
+  geom_point(aes(y = pct_change)) +
+  theme_minimal() +
+  theme(panel.border = element_blank()) +
+  scale_x_continuous(breaks = yearly_summary$year) +
+  scale_y_continuous(breaks = seq(-100, 200, by = 50)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+    labs(title = "Global Measles Cases Over Time", subtitle = "Percent Change Year-to-Year (2012-2025)") +
+  xlab("Year") + ylab("Percent Change (%)") +
+  scale_color_manual(values = c(surging = "#647D4BFF",
+                      declining = "#D9565CFF",
+                      stable = "#848C80"))
+```
+
+# Research Question: Does the method of finding measles cases differ according to the year?
+
+## Data Summary
+
+```{r}
+propsbyyear <- cases_year %>% filter(!is.na(measles_clinical),
+                                     !is.na(measles_total),
+                                     !is.na(measles_epi_linked),
+                                     !is.na(measles_lab_confirmed)) %>% 
+  group_by(year) %>%
+  summarise(clin_prop = (sum(measles_clinical) / sum(measles_total)),
+         epi_prop = (sum(measles_epi_linked) / sum(measles_total)),
+         lab_prop = (sum(measles_lab_confirmed) / sum(measles_total)))
+
+plot_long <- propsbyyear %>%
+  pivot_longer(cols = c(clin_prop, epi_prop, lab_prop),
+               names_to = "method",
+               values_to = "proportion")
+```
+
+## Visualization
+
+```{r}
+#| fig-alt: "A stacked bar graph showing the proportions of total measles cases that were either clinically-compatible cases, epidemiologically-linked cases, or laboratory-confirmed cases. Each bar represents one year. Lab-confirmed cases have the largest proportion across years, while epidemiologically-linked cases are generally the snallest proportion."
+ggplot(plot_long, aes(x = year, y = proportion, fill = method)) +
+  geom_bar(position = "fill", stat = "identity") +
+  scale_x_continuous(breaks = plot_long$year) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 8)) +
+  labs(title = "Measles Detection Method by Year",
+       subtitle = "Clinical vs. Epi-linked vs. Lab Cases") +
+  xlab("Year") +
+  ylab("Proportion") +
+  scale_fill_paletteer_d("nationalparkcolors::Acadia", 
+                         labels = c(clin_prop = "Clinical",
+                                 epi_prop = "Epi-Linked",
+                                 lab_prop = "Lab Confirmed"))
+```
+
+# Research question: Is there an association between a country's air quality and number of measles cases?
+
+## Check meta dataset
+```{r}
+meta_df |>
+  select(iso3, country, year, gdp_per_capita_nominal, 
+         measles_incidence_rate_per_1000000_total_population,
+         measles_lab_confirmed, measles_total) |>
+  glimpse()
+
+# Check for NAs
+meta_df |>
+  summarize(
+    n_total = n(),
+    n_missing_gdp = sum(is.na(gdp_per_capita_nominal)),
+    n_missing_incidence = sum(is.na(measles_incidence_rate_per_1000000_total_population)),
+    n_missing_lab = sum(is.na(measles_lab_confirmed)),
+    n_missing_total = sum(is.na(measles_total)))
+```
+
+## Visualization
+```{r}
+#| message: false
+#| warning: false
+#| fig-alt: "A scatter plot with Air Quality Index for a country and the country's average annual measles cases count on a log scale. The linear regression appears to have a slight downward trend, which we will check by fitting a model"
+meta_df %>%
+  filter(!is.na(total_aqi), !is.na(total_suspected_measles_rubella_cases)) %>%
+  group_by(country, total_aqi) %>%
+  summarise(avg_cases = mean(total_suspected_measles_rubella_cases, na.rm = TRUE)) %>%
+  ggplot(aes(x = total_aqi, y = avg_cases)) +
+  geom_point(alpha = 0.6, color = "dodgerblue") +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  scale_y_log10(labels = scales::comma) +
+  labs(
+    title = "Air Quality Index vs. Average Measles Cases by Country",
+    subtitle = "Each point represents one country; cases shown on log scale",
+    x = "Air Quality Index (higher = worse air quality)",
+    y = "Average Annual Measles Cases (log scale)",
+    caption = "Sources: API Ninjas AQI data; TidyTuesday measles dataset"
+  )
+```
+
+## Fitting the Model
+```{r}
+aqi_model <- meta_df |>
+  filter(!is.na(total_aqi), !is.na(total_suspected_measles_rubella_cases)) |>
+  group_by(country, total_aqi) |>
+  summarise(avg_cases = mean(total_suspected_measles_rubella_cases, na.rm = TRUE),
+            .groups = "drop") |>
+  mutate(log_avg_cases = log10(avg_cases + 1))
+
+model <- lm(log_avg_cases ~ total_aqi, data = aqi_model)
+
+wide_model <- broom::tidy(model, conf.int = TRUE) %>%
+  mutate(
+    term = recode(term,
+      "(Intercept)" = "Intercept",
+      "total_aqi" = "Air Quality Index"
+    ), conf_int = str_c("(", round(conf.low, 3), ", ", round(conf.high, 3), ")")
+  ) %>%
+  select(term, estimate, std.error, statistic, p.value, conf_int) %>%
+  rename(c(Term = term, Estimate = estimate, SE = std.error, Statistic = statistic,
+           "P-value" = p.value, "Conf. Interval" = conf_int))
+
+wide_model |>
+  gt() |>
+  fmt_number(columns = -"Conf. Interval", decimals = 3) |>
+  tab_style(style = cell_text(weight = "bold"),
+                              locations = cells_column_labels()) |>
+  tab_style(style = cell_text(weight = "bold"),
+            locations = cells_body(
+              columns = Term,
+              rows = Term %in% c("Intercept", "Air Quality Index")
+            )) |>
+  tab_caption(caption = "Table 1. Linear Regression coefficients for the association between measles cases and AQI.")
+```
