@@ -1,6 +1,6 @@
 ---
 title: "Measles Across the Globe"
-author: "Natalie Cartwright, Zita Tam, Aryan Nair, Amanda Dong"
+author: "Natalie Cartwright, Zita Tam, Aryan Ajith Nair, Amanda Dong"
 format:
   html:
     embed-resources: true
@@ -27,7 +27,7 @@ library(gt)
 library(paletteer)
 cases_month <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_month.csv')
 cases_year <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_year.csv')
-meta_df <- read_csv("~/Desktop/metadf.csv")
+meta_df <- read_csv("~/Desktop/STAT 431/metadf.csv")
 ```
 
 ## Has the total number of reported measles cases increased or decreased over time globally?
@@ -221,12 +221,14 @@ ggplot(plot_long, aes(x = year, y = proportion, fill = method)) +
                                  lab_prop = "Lab Confirmed"))
 ```
 
-# Research Question 2
+## Is there an association between a country's air quality and number of measles cases?
 
-## Visualization
+To answer this question, we first need to examine the relationship between a country's Air Quality Index (AQI) and its measles burden. To do this, we average each country's suspected measles cases across all available years and applied a log10 transformation to account for the highly skewed distribution of case counts. Plotting the log10 transformed average annual cases by AQI allows us to visually assess whether any linear trend exists between air pollution levels and measles burden before formalizing the relationship through a regression model. 
+
 ```{r}
 #| message: false
 #| warning: false
+#| fig-cap: "Figure 3: Linear Regression between Air Quality Index and log10 transformed Average Measles Cases by Country"
 #| fig-alt: "A scatter plot with Air Quality Index for a country and the country's average annual measles cases count on a log scale. The linear regression appears to have a slight downward trend, which we will check by fitting a model"
 meta_df %>%
   filter(!is.na(total_aqi), !is.na(total_suspected_measles_rubella_cases)) %>%
@@ -245,7 +247,7 @@ meta_df %>%
   )
 ```
 
-## Fitting the Model
+### Data Model: Association between Air Quality Index and Average Annual Measles Cases (log10 transformed)
 ```{r}
 aqi_model <- meta_df |>
   filter(!is.na(total_aqi), !is.na(total_suspected_measles_rubella_cases)) |>
@@ -277,7 +279,7 @@ wide_model |>
               columns = Term,
               rows = Term %in% c("Intercept", "Air Quality Index")
             )) |>
-  tab_caption(caption = "Table 1. Linear Regression coefficients for the association between measles cases and AQI.")
+  tab_caption(caption = "Table 5: Linear Regression coefficients for the association between measles cases and AQI.")
 ```
 
-
+To address the research question of whether a country's air quality is associated with its number of measles cases, we fit a simple linear regression with a log10 transformed average suspected measles cases as the outcome and Air Quality Index (AQI) as the predictor. The model shows us that countries with an AQI of zero would be expect to have about 280 suspected cases (10^2.45). Every 1 unit increase in AQI is associated with a 0.001 increase in log10(AQI + 1). We obtained a p-value of 0.547 which is much greater than 0.05. This means we have insufficient evidence to reject the null and have reason to believe there is no significant association between Air Quality Index and the Average Annual Measles Cases.
