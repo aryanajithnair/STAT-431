@@ -81,7 +81,6 @@ meta_df     <- read_csv("https://raw.githubusercontent.com/amandaadong/project1/
 #            factor(labels = c("Q1 (Low AQI)", "Q2", "Q3", "Q4 (High AQI)")))
 ```
 
-# RQ1: Global Trends Over Time {orientation="columns"}
 
 ## Column - Table {width="45%"}
 
@@ -271,7 +270,9 @@ yearly_totals  <- cases_year |>
 `{r} str_c(max_pct_change, "%")`
 :::
 
-### Row - Figure 1 {height="37%"}
+### Row
+::: {.panel-tabset}
+## Row - Figure 1 {height="37%"}
 
 ::: {.card title="Figure 1: Global Measles Cases Over Time"}
 ```{r}
@@ -294,7 +295,7 @@ ggplot(yearly_summary, aes(x = year, xend = year, y = 0, yend = pct_change,
 ```
 :::
 
-### Row - Figure 2 {height="38%"}
+## Row - Figure 2 {height="38%"}
 
 ::: {.card title="Figure 2: Detection Method by Year"}
 ```{r}
@@ -315,8 +316,7 @@ ggplot(plot_long, aes(x = year, y = proportion, fill = method)) +
                                  lab_prop = "Lab Confirmed"))
 ```
 :::
-
-# RQ2: Air Quality & Measles Cases {orientation="columns"}
+:::
 
 ## Column - Figures {width="50%"}
 
