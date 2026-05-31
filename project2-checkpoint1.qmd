@@ -1,0 +1,278 @@
+---
+title: "Measles Global Analysis"
+format:
+  dashboard:
+    orientation: columns
+    embed-resources: true
+    theme: journal
+    scrolling: true
+    logo: measles.png
+    nav-buttons:
+      - icon: github
+        href: https://github.com/aryanajithnair/STAT-431
+      - icon: envelope
+        href: mailto:ajithnai@calpoly.edu
+---
+
+# Global Measles Cases
+
+```{r}
+#| label: packages-setup-and-load-data
+#| message: false
+#| warning: false
+library(httr)
+library(tidyjson)
+library(jsonlite)
+library(tidyverse)
+library(stringr)
+library(gt)
+library(paletteer)
+library(ggridges)
+library(broom)
+
+cases_month <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_month.csv')
+cases_year  <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_year.csv')
+meta_df     <- read_csv("https://raw.githubusercontent.com/amandaadong/project1/main/metadf.csv")
+```
+
+## Column - Table {width="45%"}
+
+### Row - Table 1
+
+::: {.card title="Table 1: Global Measles Cases by Year"}
+```{r}
+#| label: gt-table-rq1
+# --code-- Insert table 1 of global cases by year
+trend_label <- function(current, previous) {
+  pct_change <- (current - previous) / previous * 100
+  case_when(
+    pct_change < -20 ~ "declining",
+    pct_change >  20 ~ "surging",
+    .default = "stable"
+  )
+}
+
+yearly_summary <- cases_year |>
+  group_by(year) |>
+  summarise(
+    total_cases = sum(measles_total, na.rm = TRUE),
+    n_countries = n_distinct(country),
+    .groups = "drop"
+  ) |>
+  arrange(year) |>
+  mutate(
+    prev_total = lag(total_cases),
+    pct_change = round((total_cases - prev_total) / prev_total * 100, 1),
+    trend = trend_label(total_cases, prev_total)
+  ) |>
+  select(year, total_cases, n_countries, pct_change, trend)
+
+yearly_summary |>
+  select(year, total_cases, n_countries, pct_change, trend) |>
+  gt() |>
+  cols_label(
+    year = md("**Year**"),
+    total_cases = md("**Total Cases**"),
+    n_countries = md("**Countries Reporting**"),
+    pct_change = md("**% Change from Prior Year**"),
+    trend = md("**Trend**")
+  ) |>
+  fmt_number(columns = total_cases, use_seps = TRUE, decimals = 0) |>
+  fmt_number(columns = n_countries, use_seps = TRUE, decimals = 0) |>
+  fmt_number(columns = pct_change, decimals = 1, suffix = "%") |>
+  data_color(
+    columns = pct_change,
+    fn = scales::col_numeric(
+      palette = c("#D9565C", "#FFFFFF", "#647D4B"),
+      domain  = c(-100, 200)
+    )
+  ) |>
+  tab_style(
+    style = cell_text(color = "#D9565C", weight = "bold"),
+    locations = cells_body(columns = trend, rows = trend == "declining")
+  ) |>
+  tab_style(
+    style = cell_text(color = "#647D4B", weight = "bold"),
+    locations = cells_body(columns = trend, rows = trend == "surging")
+  ) |>
+  tab_style(
+    style = cell_text(color = "#848C80"),
+    locations = cells_body(columns = trend, rows = trend == "stable")
+  ) |>
+  tab_spanner(
+    label = md("**Case Counts**"),
+    columns = c(total_cases, n_countries)
+  ) |>
+  tab_spanner(
+    label = md("**Year-over-Year Change**"),
+    columns = c(pct_change, trend)
+  ) |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_spanners()
+  ) |>
+  tab_options(
+    table.width = pct(100),
+    column_labels.font.weight = "bold",
+    heading.align = "left",
+    table.border.top.color = "black",
+    row.striping.include_table_body = TRUE
+  ) |>
+  sub_missing(missing_text = "—")
+```
+:::
+
+### Row - Table 2 
+
+::: {.card title="Table 2: Detection Method Proportions" fill="false"}
+```{r}
+#| label: gt-table-detection
+# --code-- Insert table 2 of detection method prop
+methods <- list(clin_prop = "clinical", 
+                epi_prop = "epi",
+                lab_prop = "lab")
+
+cases_filtered <- cases_year %>% filter(!is.na(measles_clinical),
+                                     !is.na(measles_total),
+                                     !is.na(measles_epi_linked),
+                                     !is.na(measles_lab_confirmed))
+yearly_totals <- cases_filtered %>% group_by(year) %>%
+  summarise(
+    total = sum(measles_total),
+    clinical = sum(measles_clinical),
+    epi = sum(measles_epi_linked),
+    lab = sum(measles_lab_confirmed),
+    .groups = "drop")
+
+props <- function(col) {
+  yearly_totals[[col]] / yearly_totals$total
+}
+
+propsbyyear <- bind_cols(
+  select(yearly_totals, year),
+  map_dfc(methods, props)
+)
+
+plot_long <- propsbyyear %>%
+  pivot_longer(cols = c(clin_prop, epi_prop, lab_prop),
+               names_to = "method",
+               values_to = "proportion")
+
+propsbyyear |>
+  gt() |>
+  cols_label(
+    year = md("**Year**"),
+    clin_prop = md("**Clinical**"),
+    epi_prop = md("**Epi-Linked**"),
+    lab_prop = md("**Lab Confirmed**")
+  ) |>
+  fmt_percent(columns = c(clin_prop, epi_prop, lab_prop), decimals = 1) |>
+  tab_spanner(
+    label = md("**Proportion of Total Cases by Detection Method**"),
+    columns = c(clin_prop, epi_prop, lab_prop)
+  ) |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_spanners()
+  ) |>
+  tab_options(
+    table.width = pct(100),
+    column_labels.font.weight = "bold",
+    heading.align = "left",
+    table.border.top.color = "black",
+    row.striping.include_table_body = TRUE
+  )
+```
+:::
+
+## Column - Value Boxes & Chart {width="55%"}
+
+### Row - RQ1 Value Boxes {height="165px"}
+```{r}
+yearly_totals  <- cases_year |>
+   group_by(year) |>
+   summarise(total = sum(measles_total, na.rm = TRUE))
+
+ highest_year   <- yearly_totals |> slice_max(total, n = 1)
+ lowest_year    <- yearly_totals |> slice_min(total, n = 1)
+ max_pct_change <- yearly_totals |>
+   mutate(pct_change = (total - lag(total)) / lag(total) * 100) |>
+   slice_max(abs(pct_change), n = 1) |>
+   pull(pct_change) %>% round(digits= 2)
+```
+
+::: {.valuebox icon="arrow-up-circle" color="danger"}
+**Highest single-year cases**
+
+`{r} highest_year$year`
+
+`{r} str_c(format(highest_year$total, scientific = FALSE), "cases", sep = " ")`
+:::
+
+::: {.valuebox icon="arrow-down-circle" color="success"}
+**Lowest single-year cases**
+
+`{r} lowest_year$year`
+
+`{r} str_c(format(lowest_year$total, scientific = FALSE), "cases", sep = " ")`
+:::
+
+::: {.valuebox icon="percent" color="info"}
+**Largest year-over-year % change**
+
+`{r} str_c(max_pct_change, "%")`
+:::
+
+### Row
+::: {.panel-tabset}
+## Figure 1 {height="37%"}
+
+::: {.card title="Figure 1: Global Measles Cases Over Time"}
+```{r}
+#| label: rq1-trend-chart
+# --code-- lollipop figure 1: Global Measles Cases Over Time
+ggplot(yearly_summary, aes(x = year, xend = year, y = 0, yend = pct_change,
+                           color = trend)) +
+  geom_segment(size = 1.3, alpha = 0.9) +
+  geom_point(aes(y = pct_change)) +
+  theme_minimal() +
+  theme(panel.border = element_blank()) +
+  scale_x_continuous(breaks = yearly_summary$year) +
+  scale_y_continuous(breaks = seq(-100, 200, by = 50)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+    labs(title = "Global Measles Cases Over Time", subtitle = "Percent Change Year-to-Year (2012-2025)") +
+  xlab("Year") + ylab("Percent Change (%)") +
+  scale_color_manual(values = c(surging = "#647D4BFF",
+                      declining = "#D9565CFF",
+                      stable = "#848C80"))
+```
+:::
+
+## Figure 2 {height="38%"}
+
+::: {.card title="Figure 2: Detection Method by Year"}
+```{r}
+#| label: rq1-detection-chart
+# --code-- stacked bar charts Figure 2: Detection Method by Year
+ggplot(plot_long, aes(x = year, y = proportion, fill = method)) +
+  geom_bar(position = "fill", stat = "identity") +
+  scale_x_continuous(breaks = plot_long$year) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 8)) +
+  labs(title = "Measles Detection Method by Year",
+       subtitle = "Clinical vs. Epi-linked vs. Lab Cases") +
+  xlab("Year") +
+  ylab("Proportion") +
+  scale_fill_paletteer_d("nationalparkcolors::Acadia", 
+                         labels = c(clin_prop = "Clinical",
+                                 epi_prop = "Epi-Linked",
+                                 lab_prop = "Lab Confirmed"))
+```
+:::
+:::
+
+# Madagascar Data
+
+::: {.card title="Why Madagascar?"}
+We selected Madagascar because it had a dramatic change of measles cases in a single year from the global measles data set. In 2012-2017, there were less than 100 cases per year, but in 2018-2019, cases in a single year spiked up to 213,291 cases and went down to below 100 cases after 2019. 
+:::

@@ -1,0 +1,16 @@
+---
+title: "First Quarto dashboards"
+format: dashboard
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(gt)
+```
+```{r}
+ggplot(mpg, aes(x = cty, y = hwy)) +
+        geom_point()
+```
+
+

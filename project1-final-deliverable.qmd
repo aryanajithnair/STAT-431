@@ -1,0 +1,474 @@
+---
+title: "Measles Across the Globe"
+author: "Natalie Cartwright, Zita Tam, Aryan Nair, Amanda Dong"
+format:
+  html:
+    embed-resources: true
+    code-fold: true
+    theme: flatly
+---
+
+# Introduction
+
+News of measles outbreaks are constantly being released. Despite vaccines, measles continues to affect the whole world. The World Health Organization collects data on monthly measles and rubella cases across the world. We will be focusing on measles cases, as it's typically more severe and contagious compared to rubella. We were provided with data on suspected measles cases, confirmed cases, and total cases. The World Health Organization provides these counts for each country, and by two time frames: monthly and yearly (2012 to 2025). All data is provisional and is reported by a country's WHO member each year.
+
+In addition to our measles data, we will also be using data collected from API Ninja on Air Quality for each country. The website does not explicitly say where they collected the Air Quality data from. We were provided with data on several major pollutants, but will focus on the overall Air Quality Index (AQI). The Air Quality Index is a globally used measurement that ranges from 0 to 500, with higher values meaning worse air pollution The index is calculated based on the 5 major air pollutants. All information on air quality provided are the latest known data.
+
+```{r}
+#| label: packages-setup
+#| message: false
+#| warning: false
+library(httr)
+library(tidyjson)
+library(jsonlite)
+library(tidyverse)
+library(stringr)
+library(gt)
+library(paletteer)
+library(ggridges)
+
+cases_month <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_month.csv')
+cases_year <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_year.csv')
+meta_df <- read_csv("https://raw.githubusercontent.com/amandaadong/project1/main/metadf.csv")
+```
+
+# Research Question 1: Has the total number of reported measles cases increased or decreased over time globally?
+
+## Background
+
+To answer this question, we first needed to determine how each country's total number of measles cases was changing year-by-year. To do this, we compared each sequential year and categorized the change as declining (if the previous year had more cases), surging (if the previous year had less cases), and stable (if cases stayed relatively the same).
+
+## Data Summaries
+
+```{r}
+trend_label <- function(current, previous) {
+  pct_change <- (current - previous) / previous * 100
+  case_when(
+    pct_change < -20 ~ "declining",
+    pct_change >  20 ~ "surging",
+    .default = "stable"
+  )
+}
+
+yearly_summary <- cases_year |>
+  group_by(year) |>
+  summarise(
+    total_cases = sum(measles_total, na.rm = TRUE),
+    n_countries = n_distinct(country),
+    .groups = "drop"
+  ) |>
+  arrange(year) |>
+  mutate(
+    prev_total = lag(total_cases),
+    pct_change = round((total_cases - prev_total) / prev_total * 100, 1),
+    trend = trend_label(total_cases, prev_total)
+  ) |>
+  select(year, total_cases, n_countries, pct_change, trend)
+```
+
+### Table 1: Global Measles Cases by Year
+
+```{r}
+#| label: table-yearly-summary
+#| tbl-cap: "Table 1: Global Measles Cases by Year (2012–2025)"
+
+yearly_summary |>
+  select(year, total_cases, n_countries, pct_change, trend) |>
+  gt() |>
+  cols_label(
+    year = md("**Year**"),
+    total_cases = md("**Total Cases**"),
+    n_countries = md("**Countries Reporting**"),
+    pct_change = md("**% Change from Prior Year**"),
+    trend = md("**Trend**")
+  ) |>
+  fmt_number(columns = total_cases, use_seps = TRUE, decimals = 0) |>
+  fmt_number(columns = n_countries, use_seps = TRUE, decimals = 0) |>
+  fmt_number(columns = pct_change, decimals = 1, suffix = "%") |>
+  data_color(
+    columns = pct_change,
+    fn = scales::col_numeric(
+      palette = c("#D9565C", "#FFFFFF", "#647D4B"),
+      domain  = c(-100, 200)
+    )
+  ) |>
+  tab_style(
+    style = cell_text(color = "#D9565C", weight = "bold"),
+    locations = cells_body(columns = trend, rows = trend == "declining")
+  ) |>
+  tab_style(
+    style = cell_text(color = "#647D4B", weight = "bold"),
+    locations = cells_body(columns = trend, rows = trend == "surging")
+  ) |>
+  tab_style(
+    style = cell_text(color = "#848C80"),
+    locations = cells_body(columns = trend, rows = trend == "stable")
+  ) |>
+  tab_spanner(
+    label = md("**Case Counts**"),
+    columns = c(total_cases, n_countries)
+  ) |>
+  tab_spanner(
+    label = md("**Year-over-Year Change**"),
+    columns = c(pct_change, trend)
+  ) |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_spanners()
+  ) |>
+  tab_options(
+    table.width = pct(100),
+    column_labels.font.weight = "bold",
+    heading.align = "left",
+    table.border.top.color = "black",
+    row.striping.include_table_body = TRUE
+  ) |>
+  sub_missing(missing_text = "—")
+```
+Global measles cases fluctuated during the 2012-2025 period. There was a high peak in 2019 before declining and significantly changing 192.4% in 2022. The decline of measles cases in 2020-2021 could be due to the increase in COVID-19 cases, but more data is needed to understand if COVID-19 was a direct cause. 
+
+### Figure 1: Percent Change Year-to-Year
+
+```{r}
+#| warning: false
+#| fig-cap: "Figure 1: Percent Change in measles cases"
+#| fig-alt: "Lollipop chart showing the percent change in total measles cases across the world for each year (2012 - 2025). The largest percent increase was in 2022, while the largest decrease was in 2020."
+
+ggplot(yearly_summary, aes(x = year, xend = year, y = 0, yend = pct_change,
+                           color = trend)) +
+  geom_segment(size = 1.3, alpha = 0.9) +
+  geom_point(aes(y = pct_change)) +
+  theme_minimal() +
+  theme(panel.border = element_blank()) +
+  scale_x_continuous(breaks = yearly_summary$year) +
+  scale_y_continuous(breaks = seq(-100, 200, by = 50)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+    labs(title = "Global Measles Cases Over Time", subtitle = "Percent Change Year-to-Year (2012-2025)") +
+  xlab("Year") + ylab("Percent Change (%)") +
+  scale_color_manual(values = c(surging = "#647D4BFF",
+                      declining = "#D9565CFF",
+                      stable = "#848C80"))
+```
+Global measles cases from 2012-2025 had a decline or were stable from 2012-2017. Cases dropped significantly in 2020-2021, occurring at the same time COVID-19 was spreading. COVID-19 could have been one of the reasons why measles cases dropped during 2020-2021. Not long after COVID-19, measles cases spiked up in 2022, with nearly a 200% increase. 
+
+Not only were we interested in looking at how measles cases changed over time, but we also wanted to know if there has been a change in the methods of finding measles over time. The number of total measles cases for each country, month, and year is made up of 3 possible methods of detecting measles: Clinically-compatible, Epidemiologically-linked, and Laboratory-confirmed. Let's see if the proportion of each method has changed throughout the years.
+
+```{r}
+methods <- list(clin_prop = "clinical", 
+                epi_prop = "epi",
+                lab_prop = "lab")
+
+cases_filtered <- cases_year %>% filter(!is.na(measles_clinical),
+                                     !is.na(measles_total),
+                                     !is.na(measles_epi_linked),
+                                     !is.na(measles_lab_confirmed))
+yearly_totals <- cases_filtered %>% group_by(year) %>%
+  summarise(
+    total = sum(measles_total),
+    clinical = sum(measles_clinical),
+    epi = sum(measles_epi_linked),
+    lab = sum(measles_lab_confirmed),
+    .groups = "drop")
+
+props <- function(col) {
+  yearly_totals[[col]] / yearly_totals$total
+}
+
+propsbyyear <- bind_cols(
+  select(yearly_totals, year),
+  map_dfc(methods, props)
+)
+
+plot_long <- propsbyyear %>%
+  pivot_longer(cols = c(clin_prop, epi_prop, lab_prop),
+               names_to = "method",
+               values_to = "proportion")
+```
+
+### Table 2: Detection Method Proportions
+
+```{r}
+#| label: table-detection-methods
+#| tbl-cap: "Table 2: Proportion of Measles Cases by Detection Method (2012–2025)"
+
+propsbyyear |>
+  gt() |>
+  cols_label(
+    year = md("**Year**"),
+    clin_prop = md("**Clinical**"),
+    epi_prop = md("**Epi-Linked**"),
+    lab_prop = md("**Lab Confirmed**")
+  ) |>
+  fmt_percent(columns = c(clin_prop, epi_prop, lab_prop), decimals = 1) |>
+  tab_spanner(
+    label = md("**Proportion of Total Cases by Detection Method**"),
+    columns = c(clin_prop, epi_prop, lab_prop)
+  ) |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_spanners()
+  ) |>
+  tab_options(
+    table.width = pct(100),
+    column_labels.font.weight = "bold",
+    heading.align = "left",
+    table.border.top.color = "black",
+    row.striping.include_table_body = TRUE
+  )
+```
+Clinical diagnosis is a consistent method that makes up the majority of the reported cases across 2012-2025, while epi-linked cases is consistent with the smallest share in most years. Lab confirmed cases did have a gradual increases from around 25-30% in the 2010s period and increased to 40-50% by the 2020s, which suggests there was improvement in lab methods globally.
+
+### Figure 2: Detection Method by Year
+
+```{r}
+#| fig-cap: "Figure 2: Method of Finding Measles Year-by-Year"
+#| fig-alt: "A stacked bar graph showing the proportions of total measles cases that were either clinically-compatible cases, epidemiologically-linked cases, or laboratory-confirmed cases. Each bar represents one year. Lab-confirmed cases have the largest proportion across years, while epidemiologically-linked cases are generally the snallest proportion."
+ggplot(plot_long, aes(x = year, y = proportion, fill = method)) +
+  geom_bar(position = "fill", stat = "identity") +
+  scale_x_continuous(breaks = plot_long$year) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 8)) +
+  labs(title = "Measles Detection Method by Year",
+       subtitle = "Clinical vs. Epi-linked vs. Lab Cases") +
+  xlab("Year") +
+  ylab("Proportion") +
+  scale_fill_paletteer_d("nationalparkcolors::Acadia", 
+                         labels = c(clin_prop = "Clinical",
+                                 epi_prop = "Epi-Linked",
+                                 lab_prop = "Lab Confirmed"))
+```
+From 2012-2025, the clinical method for measles detection is the most commonly used method. The lab confirmed method tends to have a gradual increase over the years with around 25-30% in 2014-2919 and increasing to 40-50% by 2023-2025. For the epi-linked method, its trend is stable with a huge spike in 2019, with epi-linked cases increasing to 50% that year. Again, in 2020-2021, the proportions deviate likely due to COVID-19 affecting the methods of detection for measles cases. Lab confirmed method starts to become more of a feasible method. 
+
+# Research Question 2: Is there an association between a country's air quality and number of measles cases?
+
+## Background
+
+To answer this question, we first need to examine the relationship between a country's Air Quality Index (AQI) and its measles burden. To do this, we average each country's suspected measles cases across all available years and applied a log10 transformation to account for the highly skewed distribution of case counts. Plotting the log10 transformed average annual cases by AQI allows us to visually assess whether any linear trend exists between air pollution levels and measles burden before formalizing the relationship through a regression model. 
+
+```{r}
+meta_df |>
+  select(iso3, country, year, gdp_per_capita_nominal, 
+         measles_incidence_rate_per_1000000_total_population,
+         measles_lab_confirmed, measles_total) |>
+  glimpse()
+
+```
+
+
+### Table 3: AQI vs. Average Measles Cases
+
+```{r}
+#| label: table-aqi-measles
+#| tbl-cap: "Table 3: Air Quality and Measles Burden by Country"
+
+summary_vars <- c("total_aqi", "measles_total", "measles_incidence_rate_per_1000000_total_population")
+
+filtered_df <- meta_df %>%
+  filter(!is.na(total_aqi), !is.na(measles_total), 
+         !is.na(measles_incidence_rate_per_1000000_total_population))
+
+country_summary <- summary_vars %>%
+  map(~ filtered_df %>%
+        group_by(country) %>%
+        summarise(!!.x := mean(.data[[.x]], na.rm = TRUE), .groups = "drop")
+  ) %>%
+  reduce(left_join, by = "country") %>%
+  mutate(aqi_category = case_when(
+    total_aqi <= 50  ~ "Good",
+    total_aqi <= 100 ~ "Moderate",
+    total_aqi <= 150 ~ "Unhealthy for Sensitive Groups",
+    total_aqi >  150 ~ "Unhealthy"
+  )) %>%
+  arrange(desc(total_aqi))
+
+country_summary %>%
+  gt() %>%
+  cols_label(
+    country      = "Country",
+    total_aqi    = "Mean AQI",
+    aqi_category = "AQI Category",
+    measles_total = "Mean Annual Cases",
+    measles_incidence_rate_per_1000000_total_population = "Incidence Rate (per 1,000,000)"
+  ) %>%
+  fmt_number(columns = total_aqi, decimals = 1) %>%
+  fmt_number(columns = measles_total, decimals = 1) %>%
+  fmt_number(columns = measles_incidence_rate_per_1000000_total_population, decimals = 2) %>%
+  tab_spanner(
+    label   = "Air Quality",
+    columns = c(total_aqi, aqi_category)
+  ) %>%
+  tab_spanner(
+    label   = "Measles Burden",
+    columns = c(measles_total, measles_incidence_rate_per_1000000_total_population)
+  ) %>%
+  tab_header(
+    title    = "Air Quality and Measles Burden by Country",
+    subtitle = "166 countries ordered by mean AQI (highest to lowest)"
+  ) %>%
+  data_color(
+    columns = total_aqi,
+    palette = c("lightgreen", "lightblue", "dodgerblue", "blue"),
+    domain  = c(0, 200)
+  ) %>%
+  tab_style(
+    style     = cell_text(weight = "bold"),
+    locations = cells_column_spanners()
+  ) %>%
+  tab_footnote(
+    footnote  = "Mean values calculated across all available years per country.",
+    locations = cells_column_labels(columns = c(measles_total, 
+                                                measles_incidence_rate_per_1000000_total_population))
+  )
+```
+### Table 4: Measles Burden by AQI Quartile
+
+```{r}
+#| label: table-aqi-measles-quartile
+#| tbl-cap: "Table 4: Measles Burden by AQI Quartile"
+
+summarise_by_quartile <- function(df, var, n_tiles = 4) {
+  
+  quartile_labels <- c("Q1 (Lowest AQI)", "Q2", "Q3", "Q4 (Highest AQI)")
+  
+  df %>%
+    filter(!is.na({{ var }}), !is.na(measles_total), !is.na(measles_incidence_rate_per_1000000_total_population)) %>%
+    mutate(
+      quartile = ntile({{ var }}, n_tiles),
+      quartile = factor(quartile, labels = quartile_labels)
+    ) %>%
+    group_by(quartile) %>%
+    summarise(
+      n_countries    = n_distinct(country),
+      mean_aqi       = mean({{ var }},       na.rm = TRUE),
+      total_cases    = sum(measles_total,    na.rm = TRUE),
+      mean_incidence = mean(measles_incidence_rate_per_1000000_total_population,       na.rm = TRUE),
+      .groups = "drop"
+    )
+}
+
+# call the function
+quartile_summary <- summarise_by_quartile(meta_df, total_aqi)
+
+quartile_summary %>%
+  gt() %>%
+  cols_label(
+    quartile       = "AQI Quartile",
+    n_countries    = "No. Countries",
+    mean_aqi       = "Mean AQI",
+    total_cases    = "Total Cases",
+    mean_incidence = "Mean Incidence Rate"
+  ) %>%
+  fmt_number(columns = c(mean_aqi, mean_incidence), decimals = 2) %>%
+  fmt_number(columns = total_cases, decimals = 0) %>%
+  tab_header(
+    title    = "Measles Burden Across AQI Quartiles",
+    subtitle = "Does measles burden increase with worsening air quality?"
+  ) %>%
+  data_color(columns = mean_aqi, palette = c("lightblue", "dodgerblue", "blue"))
+```
+## Figure 3: Linear Regression between Air Quality Index and log10 transformed Average Measles Cases by Country
+
+
+```{r}
+#| message: false
+#| warning: false
+#| fig-alt: "A scatter plot with Air Quality Index for a country and the country's average annual measles cases count on a log scale. The linear regression appears to have a slight downward trend, which we will check by fitting a model."
+#| fig-cap: "Figure 3: Linear Regression between Air Quality Index and log10 transformed Average Measles Cases by Country"
+meta_df %>%
+  filter(!is.na(total_aqi), !is.na(total_suspected_measles_rubella_cases)) %>%
+  group_by(country, total_aqi) %>%
+  summarise(avg_cases = mean(total_suspected_measles_rubella_cases, na.rm = TRUE)) %>%
+  ggplot(aes(x = total_aqi, y = avg_cases)) +
+  geom_point(alpha = 0.6, color = "dodgerblue") +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  scale_y_log10(labels = scales::comma) +
+  labs(
+    title = "Air Quality Index vs. Average Measles Cases by Country",
+    subtitle = "Each point represents one country; cases shown on log scale",
+    x = "Air Quality Index (higher = worse air quality)",
+    y = "Average Annual Measles Cases (log scale)",
+    caption = "Sources: API Ninjas AQI data; TidyTuesday measles dataset"
+  )
+```
+The scatterplot shows a slight negative linear association between AQI and average measles cases. Observing the spread of the points,countries with low AQI show a wider vertical spread of average measles cases than countries with higher quality index. The fanning pattern could indicate that there is heteroscedasticity and could a formal test could be done to determine if there is an association.
+
+## Model
+
+### Table 4: Linear Regression Coefficients
+
+```{r}
+#| label: linear-regression-coefficent
+#| tbl-cap: "Table 4: Linear Regression coefficients for the association between measles cases and AQI"
+#| 
+aqi_model <- meta_df |>
+  filter(!is.na(total_aqi), !is.na(total_suspected_measles_rubella_cases)) |>
+  group_by(country, total_aqi) |>
+  summarise(avg_cases = mean(total_suspected_measles_rubella_cases, na.rm = TRUE),
+            .groups = "drop") |>
+  mutate(log_avg_cases = log10(avg_cases + 1))
+
+model <- lm(log_avg_cases ~ total_aqi, data = aqi_model)
+
+wide_model <- broom::tidy(model, conf.int = TRUE) %>%
+  mutate(
+    term = recode(term,
+      "(Intercept)" = "Intercept",
+      "total_aqi" = "Air Quality Index"
+    ), conf_int = str_c("(", round(conf.low, 3), ", ", round(conf.high, 3), ")")
+  ) %>%
+  select(term, estimate, std.error, statistic, p.value, conf_int) %>%
+  rename(c(Term = term, Estimate = estimate, SE = std.error, Statistic = statistic,
+           "P-value" = p.value, "Conf. Interval" = conf_int))
+
+wide_model |>
+  gt() |>
+  fmt_number(columns = -"Conf. Interval", decimals = 3) |>
+  tab_style(style = cell_text(weight = "bold"),
+                              locations = cells_column_labels()) |>
+  tab_style(style = cell_text(weight = "bold"),
+            locations = cells_body(
+              columns = Term,
+              rows = Term %in% c("Intercept", "Air Quality Index")
+            )) |>
+  tab_caption(caption = "Table 4. Linear Regression coefficients for the association between measles cases and AQI.")
+```
+Based on the test statistic of 0.603 and large p-value (0.547 > 0.05), we have extremely weak evidence against the null hypothesis. We can conclude that there is no association between average measles cases and AQI. Also, because 0 is contained in the 95% confidence interval (-0.002 to 0.004), we cannot say that the true effect of AQI on measles cases is 0. There is no significant linear association between AQI and average measles cases after a log transformation. Future analysis could include an additional predictor such as GDP per capita to observe if there is a more meaningful conclusion that could have been drawn. 
+
+### Figure 4: Measles Distribution by AQI Quartile
+
+```{r}
+#| message: false
+#| warning: false
+#| fig-alt: "A ridgeline density plot showing the distribution of average annual measles cases across four Air Quality Index quartiles (Q1 low AQI through Q4 high AQI). All the four quantiles showed similar median case counts with around 500 cases. Q1 (low AQI) displays a bimodal distribution with two distinct peaks, while Q2, Q3, and Q4 show unimodal distributions. Because the curves were overlapping, it indicates that there is no strong relationship between AQI quartile and average measles case."
+aqi_model |>
+  mutate(
+    aqi_quartile = ntile(total_aqi, 4),
+    aqi_label = case_when(
+      aqi_quartile == 1 ~ "Q1 · low AQI",
+      aqi_quartile == 2 ~ "Q2",
+      aqi_quartile == 3 ~ "Q3",
+      aqi_quartile == 4 ~ "Q4 · high AQI"
+    ) |> factor(levels = c("Q4 · high AQI","Q3","Q2","Q1 · low AQI"))
+  ) |>
+  ggplot(aes(x = log_avg_cases, y = aqi_label, fill = aqi_label)) +
+  geom_density_ridges(
+    scale = 1.4,
+    alpha = 0.8,
+    quantile_lines = TRUE,
+    quantiles = 2        # draws the median line
+  ) +
+  scale_x_continuous(
+  breaks = log10(c(1, 10, 100, 500, 1000, 5000, 10000, 100000)),
+  labels = c("1", "10", "100", "500", "1k", "5k", "10k", "100k")
+  ) +
+  scale_fill_manual(values = c("#CECBF6","#FAC775","#9FE1CB","#B5D4F4")) +
+  labs(
+    title = "Distribution of measles cases by AQI quartile",
+    x = "Avg annual measles cases (log scale)",
+    y = NULL
+  ) +
+  theme_ridges() +
+  theme(legend.position = "none")
+```
+
+Countries with low AQI (Q1) and countries with high AQI (Q4) have around a median 500 of measles cases. This finding is consistent with the linear regression model having a weak association. Countries with low AQI have a bimodal distribution, indicating that they are not a homogeneous group. From this observation, there may be a divide between high-income and well-vaccinated countries and low income countries that also have low AQI, but a weaker healthcare system. 
