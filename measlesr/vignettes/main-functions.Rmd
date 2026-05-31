@@ -47,3 +47,11 @@ plot_detection_props(cases_year, methods = c("Clinical", "Epi-Linked", "Lab Conf
 ```
 
 This should make a stacked bar chart showing what proportion of total measles cases each year were identified by each detection method (clinical, epi-linked, or lab confirmed). The x-axis will show year and the y-axis will show proportion of total cases.
+
+---
+
+### Helper Function: `filter_by_country()`
+```{r}
+filter_by_country(data, country = "Madagascar")
+```
+This is an internal helper function used by `plot_monthly_cases()` and `yearly_case_summary()`. It filters any measles dataset to rows matching a specified country, and throws a informative error if the country column is missing or if no data is found for the given country.
